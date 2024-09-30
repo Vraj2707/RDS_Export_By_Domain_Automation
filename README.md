@@ -29,7 +29,7 @@ Before running the project, make sure you have the following installed and set u
 To start with, clone this repository using the following command:
 
 ```
-git clone [https://github.com/yourusername/your-repo-name.git](https://github.com/Vraj2707/RDS_Export_By_Domain_Automation.git)
+git clone [https://github.com/Vraj2707/RDS_Export_By_Domain_Automation.git](https://github.com/Vraj2707/RDS_Export_By_Domain_Automation.git)
 cd Export Automation Script
 ```
 
