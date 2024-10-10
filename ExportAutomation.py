@@ -6,16 +6,28 @@ import sys
 import json
 import os
 
-# User Input
-environment_name = 'DEV'
-domain = 'tSt'
-
 certificate = 'API_Data/Sanofi_root.pem'
-folder = f"{domain}-codelists-{datetime.today().strftime('%Y-%m-%d')}"
+folder = None
+failed_lst = {'rds': [], 'cl': []}
 
 # Get API Information
 config = configparser.ConfigParser()
 config.read('API_Data/API Info.txt')
+
+# User Input Function
+def map_userInp(type, domain_lst=[]):
+    try:
+        env = ["DEV", "UAT", "PROD"]
+        inp = int(input("\nEnter your choice: "))
+
+        if type == 1:
+            return env[inp - 1]
+        else:
+            return domain_lst[inp - 1]["key"]
+            
+    except Exception as e:
+        print("Error in getting user input: ", e)
+        sys.exit(-1)
 
 # Get the Access Token
 def get_access_token(token_url, grant_type, client_id, client_secret):
@@ -77,8 +89,34 @@ def api_request(request_type, access_token, api_url, codelist_id = 0):
             raise Exception(f"API request failed: {response.status_code} - {response.text}")
         
     except Exception as e:
-        print("Error in making API Request: ", e)
-        sys.exit(-1)
+        print("Error in making API Request: ")
+        return None
+        # sys.exit(-1)
+
+# Make the API Request in recover mode
+def recover_asset(url):
+    for i in range(2):
+        data = api_request('GET', access_token, url)
+        if data:
+            return data
+        else:
+            print(f"Failed !!!, Trying Again...\n")
+    
+    return None
+        
+# Get all the domain names
+def get_domain_list():
+    try:
+        enums_data = api_request('GET', access_token, api_url + '/enums')
+        domain_lst = enums_data['domain']
+        
+        if domain_lst:
+            return domain_lst
+        else:
+            raise Exception("Fetching domains failed !!!")
+    except Exception as e:
+        print("Error in getting domains: ", e)
+        sys.exit("-1")
 
 # Get the RDS by selected domain
 def get_rds_by_domain():
@@ -103,14 +141,30 @@ def get_rds_by_domain():
 def get_codelists(ref_lst):
     try:
         codelists = []
-        for ref_id in ref_lst:
-            data = api_request('GET', access_token, api_url+f"/rds/{ref_id}/codelists")
-            for cl in data:
-                codelists.append({
-                    'id': cl['id'],
-                    'name': cl['name']
-                })
-        print(f"---> Codelists For Reference Data Set: {ref_id} fetched Successfully.")
+        for i, ref_id in enumerate(ref_lst, 1):
+            try:
+                data = api_request('GET', access_token, api_url+f"/rds/{ref_id}/codelists")
+                for cl in data:
+                    codelists.append({
+                        'id': cl['id'],
+                        'name': cl['name']
+                    })
+                print(f"---> Codelists For Reference Data Set: {ref_id} fetched Successfully. [{i}/{len(ref_lst)}]")
+            except Exception as e:
+                print(f"Error in fetching the codelist for {ref_id}. Error Desc: ", e)
+                print("\n-----Entering in the Recovery Mode for getting CodeLists:------------------------------------------\n")
+                data = recover_asset(api_url+f"/rds/{ref_id}/codelists")
+                if data:
+                    for cl in data:
+                        codelists.append({
+                            'id': cl['id'],
+                            'name': cl['name']
+                        })
+                    print(f"---> Codelists For Reference Data Set: {ref_id} Recovered Successfully. [{i}/{len(ref_lst)}]")
+                else:
+                    failed_lst['rds'].append(ref_id)
+                    print(f"Unable to Fetch the data for Reference ID: {ref_id}. Please get the data manually")
+                print("\n-----Exiting the Recovery Mode:---------------------------------------------------------\n")
         
         if codelists:
             return codelists
@@ -125,12 +179,25 @@ def get_codelists(ref_lst):
 def get_values_from_codelists(codelists):
     try:
         content_lst = []
-        for cl in codelists:
-            data = api_request('POST', access_token, api_url + "v3/export", codelist_id=cl['id'])
-            cl['content'] = data
-            content_lst.append(cl)
-            print(f"---> Code Values For Codelist: {cl['id']} fetched Successfully.")
-        
+        for i, cl in enumerate(codelists,1):
+            try:
+                data = api_request('POST', access_token, api_url + "v3/export", codelist_id=cl['id'])
+                cl['content'] = data
+                content_lst.append(cl)
+                print(f"---> Code Values For Codelist: {cl['id']} fetched Successfully. [{i}/{len(codelists)}]")
+            except Exception as E:
+                print(f"Error occured while fetching code values for codelist {cl}. Error Desc: ", e)
+                print("\n-----Entering in the Recovery Mode for getting Code Values:------------------------------------------\n")
+                data = recover_asset('POST', access_token, api_url + "v3/export", codelist_id=cl['id'])
+                if data:
+                    cl['content'] = data
+                    content_lst.append(cl)
+                    print(f"---> Code Values for Codelist: {cl['id']} Recovered Successfully. [{i}/{len(codelists)}]")
+                else:
+                    failed_lst['cl'].append(cl)
+                    print(f"Unable to Fetch the data for Codelist: {cl['id']}. Please get the data manually")
+                print("\n-----Exiting the Recovery Mode:---------------------------------------------------------\n")
+
         if content_lst:
             return content_lst
         else:
@@ -146,14 +213,14 @@ def generate_csv_file(content_lst):
         if not os.path.exists(folder):
             os.makedirs(folder)
         
-        for codelist in content_lst:
+        for i, codelist in enumerate(content_lst, 1):
             file_name = f"{folder}/{codelist['name']}.csv"
             csv_content = codelist['content']
 
-            with open(file_name, mode='a', newline='') as file:
+            with open(file_name, mode='a', newline='', encoding='utf-8') as file:
                 file.write(csv_content)
 
-            print(f"---> CSV File '{file_name}' Generated Successfully.")
+            print(f"---> CSV File '{file_name}' Generated Successfully. [{i}/{len(content_lst)}]")
     except Exception as e:
         print("Error in Generating CSV File: ", e)
         sys.exit(-1)
@@ -173,7 +240,14 @@ def generate_zip_file():
         sys.exit(-1)
 
 if __name__ == "__main__":
-    print("\n===> Export Started...\n")
+
+    print("\n\t\tWelcome the the Export Automation Script :)\n")
+
+    # User Input For Environment
+    print("Please select the environment by entering the corresponding number:\n1 - DEV\n2 - UAT\n3 - PROD")
+    environment_name = map_userInp(1)
+
+    print("\n===> Export Started...")
 
     # Setup of API variables
     client_id = config[environment_name]['Client_id']
@@ -184,8 +258,19 @@ if __name__ == "__main__":
 
     # Get Token
     access_token = get_access_token(token_url, grant_type, client_id, client_secret)
-    print("\n===> Initial Setup Successful...\n")
+    print("\n===> Initial Setup Successful...")
 
+    # Get all domain list
+    domain_lst = get_domain_list()
+
+    # User Input For domain 
+    print("\nPlease select the domain by entering the corresponding number:")
+    for i, dmn in enumerate(domain_lst, 1):
+        print(f"{i} - {dmn['label']} - ({dmn['key']})")
+        
+    domain = map_userInp(2, domain_lst)
+    folder = f"{domain}-codelists-{environment_name}-{datetime.today().strftime('%Y-%m-%d')}"
+    
     # Get rds by domain
     ref_lst = get_rds_by_domain()
     print("\n===> Fetching of RDS Successful...\n")
@@ -203,5 +288,24 @@ if __name__ == "__main__":
     print("\n===> All CSV Files Generated Successfully...\n")
 
     # Creating Zip file and removing folder
-    generate_zip_file();
+    generate_zip_file()
     print("\n===> Export Completed Successfully...\n")
+
+    failed_rds = failed_lst["rds"]
+    failed_cl = failed_lst['cl']
+
+    if failed_rds or failed_cl:
+        print("\n!!!!!!!! Additional Information !!!!!!!!!!!\n\n")
+        print("Add the following data manually from Informatica R360: \n")
+        if failed_rds:
+            print("Failed Reference Data Set IDs: ")
+            for i, rid in enumerate(failed_rds):
+                print(f"{i+1}. {rid}")
+        
+        print()
+        if failed_cl:
+            print("Failed Codelists: ")
+            for i, cl in enumerate(failed_cl):
+                print(f"{i+1}. {cl['id']} - {cl['name']}")
+    
+    print("\nEND\n")
