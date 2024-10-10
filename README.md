@@ -1,7 +1,7 @@
 
 # Export Automation Script
 
-**Version 1.0**
+**Version 2.0**
 
 ## Overview
 
@@ -13,6 +13,8 @@ This project automates the tedious and time-consuming manual process of exportin
 - Supports different environments: DEV, UAT, and PROD
 - Outputs a compressed zip file containing all the CSV files
 - Clear logging of all steps being performed during the execution
+- Auto Recover from API Failures
+- Tracking of Progress to better understand the process
 
 ## Prerequisites
 
@@ -69,8 +71,6 @@ python ExportAutomation.py
 <img width="580" alt="b" src="https://github.com/user-attachments/assets/233afdbf-554f-4444-98cf-bcac93a0a994">
 
 ## Future Enhancements (To-Do)
-
-For Version 2.0:
-- **Auto-Recovery from API Request Failures**: Implement logic to handle and recover from API request timeouts or failures.
+- **Auto-Recovery from API Request Failures**: Implement logic to handle and recover from API request timeouts or failures. (COMPLETED)
 
 ---
